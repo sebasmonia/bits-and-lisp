@@ -19,7 +19,7 @@
 
 (defun make-bmp-file-from-path (path)
   "Create a `bmp-file' instance from a file in PATH."
-  (let (buffer
+  (let (buffer pixel-array-start
         (the-file (make-instance 'bmp-file :path path)))
     (flet ((consume-buffer ()
              "Return the `nreverse' of `buffer', and `setf' it to empty (to start pushing again)."
@@ -27,25 +27,31 @@
                (setf buffer nil)
                bytes-in-buffer)))
       (with-open-file (stream path :direction :input :element-type '(unsigned-byte 8))
-        (loop for value = (read-byte stream nil)
+        (loop for value = (read-byte stream nil :eof)
               for position from 0
               do
+                 (when (eq value :eof)
+                   ;; end of file reached
+                   (return))
                  (push value buffer) ;; accumulate until we are at a field limit
-                 (cond ((= position 1) (validate-header (consume-buffer)))
-                       ((= position 5) (setf (bmp-size-bytes the-file)
-                                             (calculate-size (consume-buffer))))
-                       ((= position 7) (return)))))
-      )
-      the-file))
+                 (cond ((= position 1) (validate-header (consume-buffer))) ;; "BM" header
+                       ((= position 5) (setf (bmp-size-bytes the-file) ;; 4 bytes for size
+                                             (byte-seq-to-integer (consume-buffer))))
+                       ;; ;; 4 bytes that are optional and can be ignored
+                       ((= position 9) (consume-buffer))
+                       ((= position 13) (setf pixel-array-start ;; 4 bytes for "offset to image data"
+                                             (byte-seq-to-integer (consume-buffer))))
+                       ;; more fields here
+                       )))
+      (values the-file
+              ;; useful to see what field comes next, until I'm done
+              (nreverse buffer)))))
 
 (defun validate-header (header-field)
   "Check that HEADER-FIELD has the values 66 77 (BM in ASCII)."
   (unless (and (= (first header-field) 66)
                (= (second header-field) 77))
     (error "Invalid BMP file - bad header.")))
-
-(defun calculate-size (size-field)
-  (byte-seq-to-integer size-field))
 
 ;; Slightly modified octets->uint from
 ;; https://github.com/EuAndreh/cl-intbytes/blob/master/src/cl-intbytes.lisp
@@ -57,7 +63,7 @@
   (let ((bytes-list (coerce bytes-seq 'list))
         (output-int 0))
     (loop for byte-value in bytes-list
-          for bit-displacement from 0 by 8 ;; produces 0, 8, 16, 32, etc.
+          for bit-displacement from 0 by 8 ;; produces 0, 8, 16, 24, 32, etc.
           do
              ;; setting the bits in `output-int' to the bits in the corresponding
              ;; `byte-value', on each iteration `bit-displacement' goes in powers of two
