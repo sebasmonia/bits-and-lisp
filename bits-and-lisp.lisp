@@ -8,11 +8,73 @@
 (defun write-file ()
   (format nil "Write"))
 
+;; TODO: Learn more about naming accessors, an consider using a separate entity for BMP headers
 (defclass bmp-file ()
-  ((path :initform "" :initarg :path :accessor bmp-path)
-   (bmp-size-bytes :initform 0 :accessor bmp-size-bytes)
-   (dib-size-bytes :initform nil :accessor dib-size-bytes)
-   ))
+  ((path
+    :initform ""
+    :initarg :path
+    :accessor bmp-path
+    :documentation "Path to the file in disk, empty if the instance is not associated to one.")
+   (bmp-size-bytes
+    :initform 0
+    :accessor bmp-size-bytes
+    :documentation "File size in bytes as reported in the BITMAPFILEHEADER.")
+   (dib-size-bytes
+    :initform 0
+    :accessor dib-size-bytes
+    :documentation "Size in bytes of the BITMAPINFOHEADER/BITMAPV4HEADER/ BITMAPV5HEADER. The size
+determines the type of DIB header we are dealing with.")
+   (pixel-height
+    :initform 0
+    :accessor pixel-height
+    ;; TODO: consider keeping this slot always positive and have another one for "bottom-up" vs
+    ;; "top-down" (or just a "inverted" flag?)
+    :documentation "Bitmap height, in pixels. If it is positive, the bitmap origin is in the lower
+left corner. Else it is a top-down bitmap and its origin is the upper left corner.")
+   (pixel-width
+    :initform 0
+    :accessor pixel-width
+    :documentation "Bitmap width, in pixels.")
+   (color-planes
+    :initform 1
+    :accessor color-planes
+    ;; TODO: validate in the accesor? make it read-only? maybe validate when reading from an
+    ;; existing file only.
+    :documentation "This value must always be 1.")
+   (bits-per-pixel
+    :initform 0
+    :accessor bits-per-pixel
+    :documentation "Possible values: 0, 1, 4, 8, 16, 24, 32. See the official docs for meaning of
+each one: https://docs.microsoft.com/en-us/previous-versions//dd183376(v=vs.85)")
+   (compression-method
+    :initform 0
+    :accessor compression-method
+    :documentation "Possible values: 0 (most common), 1, 2, 3, 4, 5, 6, 11, 12, 13. Follow this
+link https://en.wikipedia.org/wiki/BMP_file_format#DIB_header_(bitmap_information_header) for a
+table explaning the meaning of each value.")
+   (raw-bitmap-size
+    :initform 0
+    :accessor raw-bitmap-size
+    :documentation "The size in bytes of the bitmap data array. Can be 0.")
+   (horizontal-resolution
+    :initform 0
+    :accessor horizontal-resolution
+    :documentation "The horizontal resolution of the image, in pixel per meters.")
+   (vertical-resolution
+    :initform 0
+    :accessor vertical-resolution
+    :documentation "The vertical resolution of the image, in pixel per meters.")
+   (color-palette
+    :initform 0
+    :accessor color-palette
+    :documentation "How many indexes from the color table are used by the bitmap. \"0\" means \"all
+colors\".")
+   (important-colors
+    :initform 0
+    :accessor important-colors
+    :documentation "Minimum colores required to display the image, general set to 0 and ignored."))
+  (:documentation "Holds together the fields for a BMP file. I would use a struct, but I keep
+reading advice go for classes and consider `defstruct' legacy, so... "))
 
 (defun make-bmp-file ()
   (make-instance 'bmp-file))
@@ -20,7 +82,7 @@
 (defun make-bmp-file-from-path (path)
   "Create a `bmp-file' instance from a file in PATH."
   (let (buffer
-        (pixel-array-start -1) ;; starting value that doesn't break the cond below
+        (pixel-array-start nil) ;; starting value that doesn't break the cond below
         (the-file (make-instance 'bmp-file :path path)))
     (flet ((consume-buffer ()
              "Return the `nreverse' of `buffer', and `setf' it to empty (to start pushing again)."
@@ -48,11 +110,12 @@
                        ;; between it and pixel-array-start is "DIB header".
                        ;; We are gonna offload that to another function, passing the instance
                        ;; of bmp-file we are populating.
-                       ((= pixel-array-start (+ 13 (length buffer))) (process-DIB-header
-                                                                      the-file
-                                                                      (consume-buffer))
-                                                                     ;; discard this value
-                                                                     (setf pixel-array-start -1))
+                       ((and pixel-array-start (= pixel-array-start (+ 13 (length buffer))))
+                        (process-DIB-header
+                         the-file
+                         (consume-buffer))
+                        ;; reset flag
+                        (setf pixel-array-start nil))
                        ;; more fields here
                        )))
       (values the-file
@@ -79,28 +142,17 @@
 
 (defun extract-data-BITMAPINFOHEADER (bitmap-file header-bytes)
   "Analyze the bytes of HEADER-BYTES as a \"BITMAPINFOHEADER\" and populate BITMAP-FILE with it."
-  (let ((dib-size (byte-seq-to-integer (subseq header-bytes 0 4)))
-        (pixel-width (byte-seq-to-integer (subseq header-bytes 4 8)))
-        (pixel-height (byte-seq-to-integer (subseq header-bytes 8 12)))
-        (color-planes (byte-seq-to-integer (subseq header-bytes 12 14))) ;; "must be 1"
-        (bits-per-pixel (byte-seq-to-integer (subseq header-bytes 14 16)))
-        (compression-method (byte-seq-to-integer (subseq header-bytes 16 20)))
-        (raw-bitmap-size (byte-seq-to-integer (subseq header-bytes 20 24)))
-        (horizontal-resolution (byte-seq-to-integer (subseq header-bytes 24 28)))
-        (vertical-resolution (byte-seq-to-integer (subseq header-bytes 28 32)))
-        (colors-palette (byte-seq-to-integer (subseq header-bytes 32 36)))
-        (important-colors (byte-seq-to-integer (subseq header-bytes 36))))
-    (print dib-size)
-    (print pixel-width)
-    (print pixel-height)
-    (print color-planes)
-    (print bits-per-pixel)
-    (print compression-method)
-    (print raw-bitmap-size)
-    (print horizontal-resolution)
-    (print vertical-resolution)
-    (print colors-palette)
-    (print important-colors)))
+  (setf (dib-size-bytes bitmap-file) (byte-seq-to-integer (subseq header-bytes 0 4)))
+  (setf (pixel-width bitmap-file) (byte-seq-to-integer (subseq header-bytes 4 8)))
+  (setf (pixel-height bitmap-file) (byte-seq-to-integer (subseq header-bytes 8 12)))
+  (setf (color-planes bitmap-file) (byte-seq-to-integer (subseq header-bytes 12 14))) ;; "must be 1"
+  (setf (bits-per-pixel bitmap-file) (byte-seq-to-integer (subseq header-bytes 14 16)))
+  (setf (compression-method bitmap-file) (byte-seq-to-integer (subseq header-bytes 16 20)))
+  (setf (raw-bitmap-size bitmap-file) (byte-seq-to-integer (subseq header-bytes 20 24)))
+  (setf (horizontal-resolution bitmap-file) (byte-seq-to-integer (subseq header-bytes 24 28)))
+  (setf (vertical-resolution bitmap-file) (byte-seq-to-integer (subseq header-bytes 28 32)))
+  (setf (color-palette bitmap-file) (byte-seq-to-integer (subseq header-bytes 32 36)))
+  (setf (important-colors bitmap-file) (byte-seq-to-integer (subseq header-bytes 36))))
 
 ;; Slightly modified octets->uint from
 ;; https://github.com/EuAndreh/cl-intbytes/blob/master/src/cl-intbytes.lisp
