@@ -64,17 +64,20 @@ table explaning the meaning of each value.")
     :initform 0
     :accessor vertical-resolution
     :documentation "The vertical resolution of the image, in pixel per meters.")
-   (color-palette
+   (color-palette-size
     :initform 0
-    :accessor color-palette
+    :accessor color-palette-size
     :documentation "How many indexes from the color table are used by the bitmap. \"0\" means \"all
-colors\".")
+colors supported given the bpp\" and in that case no color table is included.")
    (important-colors
     :initform 0
     :accessor important-colors
-    :documentation "Minimum colores required to display the image, general set to 0 and ignored."))
+    :documentation "Minimum colores required to display the image, general set to 0 and ignored.")
+   (pixel-array
+    :accessor pixel-array
+    :documentation "The pixel array for the bitmap, for now it is in list format..."))
   (:documentation "Holds together the fields for a BMP file. I would use a struct, but I keep
-reading advice go for classes and consider `defstruct' legacy, so... "))
+reading advice to go for classes and consider `defstruct' legacy, so... "))
 
 (defun make-bmp-file ()
   (make-instance 'bmp-file))
@@ -82,7 +85,7 @@ reading advice go for classes and consider `defstruct' legacy, so... "))
 (defun make-bmp-file-from-path (path)
   "Create a `bmp-file' instance from a file in PATH."
   (let (buffer
-        (pixel-array-start nil) ;; starting value that doesn't break the cond below
+        (pixel-array-start -1) ;; starting value that doesn't break the cond below
         (the-file (make-instance 'bmp-file :path path)))
     (flet ((consume-buffer ()
              "Return the `nreverse' of `buffer', and `setf' it to empty (to start pushing again)."
@@ -91,36 +94,35 @@ reading advice go for classes and consider `defstruct' legacy, so... "))
                bytes-in-buffer)))
       (with-open-file (stream path :direction :input :element-type '(unsigned-byte 8))
         (loop for value = (read-byte stream nil :eof)
-              for position from 0
+              ;; counting from 1 makes the cond below match the field sizes in the spec
+              for position from 1
               do
                  (when (eq value :eof)
                    ;; end of file reached
                    (return))
                  (push value buffer) ;; accumulate until we are at a field limit
-                 (cond ((= position 1) (validate-file-header (consume-buffer))) ;; "BM" header
+                 (cond ((= position 2) (validate-file-header (consume-buffer))) ;; "BM" header
                        ;; 4 bytes for size
-                       ((= position 5) (setf (bmp-size-bytes the-file)
+                       ((= position 6) (setf (bmp-size-bytes the-file)
                                              (byte-seq-to-integer (consume-buffer))))
                        ;; ;; 4 bytes that are optional and can be ignored
-                       ((= position 9) (consume-buffer))
+                       ((= position 10) (consume-buffer))
                        ;; 4 bytes for "offset to image data"
-                       ((= position 13) (setf pixel-array-start
+                       ((= position 14) (setf pixel-array-start
                                               (byte-seq-to-integer (consume-buffer))))
                        ;; once we reach the end of the file header (previous cond), everything
                        ;; between it and pixel-array-start is "DIB header".
                        ;; We are gonna offload that to another function, passing the instance
                        ;; of bmp-file we are populating.
-                       ((and pixel-array-start (= pixel-array-start (+ 13 (length buffer))))
-                        (process-DIB-header
-                         the-file
-                         (consume-buffer))
-                        ;; reset flag
-                        (setf pixel-array-start nil))
-                       ;; more fields here
+                       ((= pixel-array-start position) (process-DIB-header the-file
+                                                                           (consume-buffer)))
+                       ;; TODO: my sample bitmaps don't have a color palette, I should get one
+                       ;; that does to add code here for that.
                        )))
-      (values the-file
-              ;; useful to see what field comes next, until I'm done
-              (nreverse buffer)))))
+      ;; at this point I processed the two headers, potential the color palette, and have the
+      ;; pixel array in the buffer.
+      (setf (pixel-array the-file) (nreverse buffer))
+      the-file)))
 
 (defun validate-file-header (header-field)
   "Check that HEADER-FIELD has the values 66 77 (BM in ASCII)."
@@ -146,7 +148,7 @@ reading advice go for classes and consider `defstruct' legacy, so... "))
                    (pixel-height pixel-height) (color-planes color-planes)
                    (bits-per-pixel bits-per-pixel) (compression-method compression-method)
                    (raw-bitmap-size raw-bitmap-size) (horizontal-resolution horizontal-resolution)
-                   (vertical-resolution vertical-resolution) (color-palette color-palette)
+                   (vertical-resolution vertical-resolution) (color-palette-size color-palette-size)
                    (important-colors important-colors)) bitmap-file
     (setf dib-size-bytes (byte-seq-to-integer (subseq header-bytes 0 4)))
     (setf pixel-width (byte-seq-to-integer (subseq header-bytes 4 8)))
@@ -157,7 +159,7 @@ reading advice go for classes and consider `defstruct' legacy, so... "))
     (setf raw-bitmap-size (byte-seq-to-integer (subseq header-bytes 20 24)))
     (setf horizontal-resolution (byte-seq-to-integer (subseq header-bytes 24 28)))
     (setf vertical-resolution (byte-seq-to-integer (subseq header-bytes 28 32)))
-    (setf color-palette (byte-seq-to-integer (subseq header-bytes 32 36)))
+    (setf color-palette-size (byte-seq-to-integer (subseq header-bytes 32 36)))
     (setf important-colors (byte-seq-to-integer (subseq header-bytes 36)))))
 
 ;; Slightly modified octets->uint from
