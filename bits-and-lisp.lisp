@@ -142,17 +142,23 @@ reading advice go for classes and consider `defstruct' legacy, so... "))
 
 (defun extract-data-BITMAPINFOHEADER (bitmap-file header-bytes)
   "Analyze the bytes of HEADER-BYTES as a \"BITMAPINFOHEADER\" and populate BITMAP-FILE with it."
-  (setf (dib-size-bytes bitmap-file) (byte-seq-to-integer (subseq header-bytes 0 4)))
-  (setf (pixel-width bitmap-file) (byte-seq-to-integer (subseq header-bytes 4 8)))
-  (setf (pixel-height bitmap-file) (byte-seq-to-integer (subseq header-bytes 8 12)))
-  (setf (color-planes bitmap-file) (byte-seq-to-integer (subseq header-bytes 12 14))) ;; "must be 1"
-  (setf (bits-per-pixel bitmap-file) (byte-seq-to-integer (subseq header-bytes 14 16)))
-  (setf (compression-method bitmap-file) (byte-seq-to-integer (subseq header-bytes 16 20)))
-  (setf (raw-bitmap-size bitmap-file) (byte-seq-to-integer (subseq header-bytes 20 24)))
-  (setf (horizontal-resolution bitmap-file) (byte-seq-to-integer (subseq header-bytes 24 28)))
-  (setf (vertical-resolution bitmap-file) (byte-seq-to-integer (subseq header-bytes 28 32)))
-  (setf (color-palette bitmap-file) (byte-seq-to-integer (subseq header-bytes 32 36)))
-  (setf (important-colors bitmap-file) (byte-seq-to-integer (subseq header-bytes 36))))
+  (with-accessors ((dib-size-bytes dib-size-bytes) (pixel-width pixel-width)
+                   (pixel-height pixel-height) (color-planes color-planes)
+                   (bits-per-pixel bits-per-pixel) (compression-method compression-method)
+                   (raw-bitmap-size raw-bitmap-size) (horizontal-resolution horizontal-resolution)
+                   (vertical-resolution vertical-resolution) (color-palette color-palette)
+                   (important-colors important-colors)) bitmap-file
+    (setf dib-size-bytes (byte-seq-to-integer (subseq header-bytes 0 4)))
+    (setf pixel-width (byte-seq-to-integer (subseq header-bytes 4 8)))
+    (setf pixel-height (byte-seq-to-integer (subseq header-bytes 8 12)))
+    (setf color-planes (byte-seq-to-integer (subseq header-bytes 12 14))) ;; "must be 1"
+    (setf bits-per-pixel (byte-seq-to-integer (subseq header-bytes 14 16)))
+    (setf compression-method (byte-seq-to-integer (subseq header-bytes 16 20)))
+    (setf raw-bitmap-size (byte-seq-to-integer (subseq header-bytes 20 24)))
+    (setf horizontal-resolution (byte-seq-to-integer (subseq header-bytes 24 28)))
+    (setf vertical-resolution (byte-seq-to-integer (subseq header-bytes 28 32)))
+    (setf color-palette (byte-seq-to-integer (subseq header-bytes 32 36)))
+    (setf important-colors (byte-seq-to-integer (subseq header-bytes 36)))))
 
 ;; Slightly modified octets->uint from
 ;; https://github.com/EuAndreh/cl-intbytes/blob/master/src/cl-intbytes.lisp
