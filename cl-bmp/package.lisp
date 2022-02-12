@@ -1,8 +1,8 @@
 ;;;; package.lisp
 (in-package #:cl-user)
 
-(defpackage #:bits-and-lisp
-  (:nicknames "bal" :bal)
+(defpackage #:cl-bmp
+  (:nicknames "bmp" :bmp)
   (:use #:common-lisp)
   (:local-nicknames (:alex :alexandria)
                     ;; more nicknamed packages here

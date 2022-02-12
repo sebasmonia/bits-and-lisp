@@ -1,6 +1,8 @@
-;;;; bits-and-lisp.lisp
+;;;; cl-bmp.lisp
 
-(in-package #:bits-and-lisp)
+(in-package #:cl-bmp)
+
+(defvar meh nil)
 
 (defun read-file ()
   (format nil "Read"))
